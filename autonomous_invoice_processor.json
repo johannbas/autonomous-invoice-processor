@@ -1,0 +1,168 @@
+{
+  "name": "Autonomous AI Invoice Processor",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {
+          "q": "has:attachment"
+        }
+      },
+      "id": "inv-0001",
+      "name": "Gmail (Watch Invoices)",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [
+        100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=YOUR_GEMINI_API_KEY",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contents\": [{\n    \"parts\": [\n      {\"text\": \"You are an expert accountant. Extract the following from this invoice PDF: Vendor Name, Date, Total Amount, Currency, and Tax. Return ONLY a valid JSON object with keys: vendor, date, amount, currency, tax.\"},\n      {\"inlineData\": {\"mimeType\": \"application/pdf\", \"data\": \"{{ $json.attachment.base64 }}\"}}\n    ]\n  }],\n  \"generationConfig\": {\"responseMimeType\": \"application/json\"}\n}",
+        "options": {}
+      },
+      "id": "inv-0002",
+      "name": "Gemini Multi-Modal (Parse PDF)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = JSON.parse($input.first().json.candidates[0].content.parts[0].text);\nreturn [{ json: data }];"
+      },
+      "id": "inv-0003",
+      "name": "Format JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Ledger",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.date }}",
+            "Vendor": "={{ $json.vendor }}",
+            "Amount": "={{ $json.amount }}",
+            "Currency": "={{ $json.currency }}",
+            "Tax": "={{ $json.tax }}",
+            "Processed_At": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "inv-0004",
+      "name": "Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "name": "={{ $json.vendor }}_{{ $json.date }}.pdf",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "YOUR_DRIVE_FOLDER_ID",
+          "mode": "id"
+        },
+        "fileContent": "={{ $('Gmail (Watch Invoices)').first().json.attachment.base64 }}",
+        "options": {}
+      },
+      "id": "inv-0005",
+      "name": "Save PDF to Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        900,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Gmail (Watch Invoices)": {
+      "main": [
+        [
+          {
+            "node": "Gemini Multi-Modal (Parse PDF)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Multi-Modal (Parse PDF)": {
+      "main": [
+        [
+          {
+            "node": "Format JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format JSON": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Save PDF to Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
